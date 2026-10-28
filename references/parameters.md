@@ -1,6 +1,6 @@
 # 参数与调用
 
-依赖 Node.js 与 `@napi-rs/canvas`。脚本优先使用项目依赖，再使用 `CODEX_PRIMARY_RUNTIME_NODE_MODULES` 指向的运行环境。字体与图片在本地读取；无需网页服务、浏览器或网络。
+依赖 Node.js 与 `@napi-rs/canvas`。依赖由 `scripts/deps.cjs` 从技能目录的 `node_modules` 加载，缺失时自动在技能目录执行 `npm ci`。字体与图片在本地读取；无需网页服务、浏览器或网络。
 
 ```bash
 node /absolute/path/to/skill/scripts/render-poster.cjs /absolute/path/to/config.json /absolute/path/to/output

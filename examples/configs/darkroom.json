@@ -1,0 +1,14 @@
+{
+  "variant": "darkroom",
+  "outputName": "02_陀飞轮_红黑",
+  "originalText": "曾付出几多心跳 来换取一堆堆的发票",
+  "text": "曾付出几多心跳，来换取一堆堆的发票。",
+  "lines": ["曾付出几多心跳，", "来换取一堆堆的", "发票。"],
+  "sourceType": "lyrics",
+  "author": "陈奕迅",
+  "workTitle": "陀飞轮",
+  "credits": {"lyricist": "黄伟文", "composer": "Vincent Chow"},
+  "photo": "sample-background.jpg",
+  "backgroundTreatment": "preserve",
+  "emphasis": ["发票"]
+}

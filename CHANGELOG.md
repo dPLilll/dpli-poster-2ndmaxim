@@ -1,5 +1,37 @@
 # 更新记录
 
+## 1.7.2 · 2026-10-28
+
+- 句号水印改到「。」下方一个图层：渲染正文时先画「贰」、再画「。」，圆环压在字上；PNG 与可编辑 HTML（水印 `<image>` 紧排在对应「。」`<text>` 之前）一致。
+- 去掉 1.7.1 的镂空（knockout）逻辑及其 SVG 遮罩、滤镜和正文前快照。默认 `periodWatermarkScale: 1.35`、着色、句号本身大小均不变。
+- `verify-poster.cjs`：镂空检查改为图层顺序检查（`layer: below-period`，HTML 中水印位于对应「。」之前、紧随前一字之后，且无遮罩）。
+
+### 本版一并发布的整理（1.6 之后）
+
+- `SKILL.md` 精简为流程与硬约束，细则拆分到 `references/`（emphasis、fonts-and-assets、layout、line-breaks-punctuation、modification-boundary、original-workflow、output-and-html-assets、source-verification）。
+- 新增 `scripts/deps.cjs`：依赖从技能目录自己的 `node_modules` 加载，缺失时自动 `npm ci`；不再依赖 `CODEX_PRIMARY_RUNTIME_NODE_MODULES`。
+- 新增 `npm test`（`scripts/test.cjs`）与 `examples/configs/` 示例配置（示例底图为纯渐变占位图）。
+- `package.json` 声明 Node.js ≥ 18。
+
+## 1.7.1 · 2026-10-28
+
+- 句号水印放大：新增 `periodWatermarkScale`（0.5..2，**默认 1.35**），以 1.7.0 的 1 px 间隙尺寸为基准、同一中心等比放大；句号圆环本身仍不放大不改。
+- 放大后笔画会压到圆环，同色叠加会糊成一片，因此改为镂空处理：压到圆环的笔画露出句号下方原背景，内孔部分着正文色（PNG 逐像素按覆盖率合成，HTML 用 SVG 遮罩实现同样效果）。
+- `verify-poster.cjs`：允许水印压圆环；改为独立重测内孔、重新拟合基准（仍须 ≥1 px 间隙），核对放大倍数、尺寸位置、不溢出句号外轮廓及镂空遮罩；遮罩内的辅助字形不计入正文字形核对；Logo 只取无 data-role 的图片。
+- `test.cjs` 新增一张含「。」的浅绿测试图（借用红黑示例正文），覆盖浅绿版水印；示例配置本身未改。
+
+## 1.7.0 · 2026-10-28
+
+- 新增句号水印（用户授权的渲染器改动）：正文每个「。」的内孔内放入「贰」水印，素材为用户提供的逐浪萌芽字简体「贰」图片 `assets/period-er.png`（不使用其 TTF）。
+- 句号本身不放大、不改笔画；渲染器按实际渲染的「。」测量内孔，把水印等比缩到最大并与圆环保持 ≥1 px 间隙，按正文色着色（浅绿 `#b54434`、红黑 `#b4ddbe`）。PNG 与 HTML（`<image data-role="period-watermark">` + SVG 着色滤镜）同时输出，参数 JSON 记录每个水印的位置、尺寸、最小间隙与内孔尺寸。
+- 默认开启，配置 `periodWatermark: false` 关闭。
+- 新增共用模块 `scripts/period-watermark.cjs`；`verify-poster.cjs` 新增“句号水印”检查（独立重测内孔并重算缩放），Logo 检查改为排除句号水印图片。其余版式、字号、字距、字体文件均未改动。
+
+## 1.6.1 · 2026-10-27
+
+- 歌词来源：`credits.lyricist` 与 `credits.composer` 相同且不同于 `author`（歌手）时，第二行自动合并为“词曲：姓名”（用户授权的渲染器改动，与 source-verification.md 的既有规则一致）。其他情况仍为“作词：…　作曲：…”。
+- `render-poster.cjs` 与 `verify-poster.cjs` 同步该规则；字体覆盖检查加入“词曲：”。版式、字号、字距、字体文件均未改动。
+
 ## 1.6 · 2026-10-15
 
 ### 品牌与名称

@@ -2,11 +2,11 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),zlib=require('node:zlib'),{createHash}=require('node:crypto');
 const normalize=require('./normalize-text.cjs'),coverage=require('./font-coverage.cjs'),checkPunctuation=require('./check-punctuation.cjs');
-const {createCanvas,GlobalFonts}=require('@napi-rs/canvas');
+const {createCanvas,GlobalFonts,loadImage}=require('./deps.cjs')('@napi-rs/canvas');const PW=require('./period-watermark.cjs');
 const root=path.resolve(__dirname,'..'),sha=b=>createHash('sha256').update(b).digest('hex');
 const near=(a,b)=>Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<0.02;
 const decode=s=>s.replace(/&(amp|lt|gt|quot|#39);/g,(_,k)=>({amp:'&',lt:'<',gt:'>',quot:'"','#39':"'"}[k]));
-function main(){
+async function main(){
  const args=process.argv.slice(2),reviewed=args.includes('--visual-reviewed');
  if(args.includes('--help')){console.log('node scripts/verify-poster.cjs config.json output-directory [--visual-reviewed]');return;}
  if(args.length!==(reviewed?3:2)||reviewed&&args[2]!=='--visual-reviewed')throw Error('Supply config.json output-directory, optionally --visual-reviewed after inspecting PNG.');
@@ -52,6 +52,7 @@ function main(){
  function tracking(glyphs,gap){return glyphs.every((g,i)=>{const next=glyphs[i+1];if(!next||next.row!==g.row)return true;c.font=`${g.fontSize}px VerifyBody`;return near(next.x-g.x,c.measureText(g.char).width+gap);});}
  check('固定字距',recipe.letterSpacing===-45&&tracking(body,-45)&&tracking(source,-4.666667),'正文与强调 −45 px，署名独立字距');
  const limit=cfg.layout==='long'?((cfg.credits||cfg.sourceType==='quote')?1360:1430):1200;
+ check('字序正向',body.every((g,i)=>{const n=body[i+1];return !n||n.row!==g.row||n.x>g.x;}),'同排字形横坐标递增；固定 −45 px 字距在过小字号下会使字形倒排重叠，此时须改断行而非交付');
  check('正文越界',measured.length>0&&measured.every(g=>g.left>=7.98&&g.right<=1192.02&&g.top>=7.98&&g.bottom<=limit-7.98));
  let collision=false;for(let i=0;i<measured.length;i++)for(let j=i+1;j<measured.length;j++){const a=measured[i],b=measured[j];if(a.row!==b.row&&a.left<b.right&&b.left<a.right&&Math.min(a.bottom,b.bottom)>Math.max(a.top,b.top)+0.02)collision=true;}
  check('跨行碰撞',!collision,'实际字形外框独立检测；同排固定负字距不作为跨行碰撞');
@@ -59,17 +60,41 @@ function main(){
  check('整体居中与留白',near(top,limit-bottom),'含强调字的实际总边界上下留白相等');
  const rows=recipe.rendered??[];
  check('小字行距',recipe.lineSpacingMode==='optical-small-word-anchors'&&rows.slice(1).every((r,i)=>near(r.anchorTop-rows[i].anchorBottom,14)),'相邻小字锚点可见空隙 14 px，不放大全局行距');
- const expected=[];if(cfg.author){expected.push((cfg.sourcePrefix??'')+(cfg.sourceType==='lyrics'&&cfg.workTitle?`${cfg.author}《${cfg.workTitle}》`:cfg.author));if(cfg.credits){const p=[];if(cfg.credits.lyricist)p.push(`作词：${cfg.credits.lyricist}`);if(cfg.credits.composer)p.push(`作曲：${cfg.credits.composer}`);expected.push(p.join('　'));}else if(cfg.sourceType==='quote')expected.push(`${cfg.sourceMedium??''}《${cfg.sourceTitle}》`);}
+ const expected=[];if(cfg.author){expected.push((cfg.sourcePrefix??'')+(cfg.sourceType==='lyrics'&&cfg.workTitle?`${cfg.author}《${cfg.workTitle}》`:cfg.author));if(cfg.credits){const p=[];if(cfg.credits.lyricist&&cfg.credits.lyricist===cfg.credits.composer&&cfg.credits.lyricist!==String(cfg.author??''))p.push(`词曲：${cfg.credits.lyricist}`);else{if(cfg.credits.lyricist)p.push(`作词：${cfg.credits.lyricist}`);if(cfg.credits.composer)p.push(`作曲：${cfg.credits.composer}`);}expected.push(p.join('　'));}else if(cfg.sourceType==='quote')expected.push(`${cfg.sourceMedium??''}《${cfg.sourceTitle}》`);}
  check('署名内容',expected.length>0&&JSON.stringify((recipe.sourceRows??[]).map(r=>r.text))===JSON.stringify(expected)&&expected.every((t,i)=>source.filter(g=>g.row===i).map(g=>g.char).join('')===t),'与确认配置核对，出处真实性仍须人工查证');
  const sourceRows=recipe.sourceRows??[],sourceMeasured=source.map(g=>({...g,...bounds(g)}));
  check('署名位置',sourceRows.length>0&&sourceRows.every((r,i)=>{const gs=sourceMeasured.filter(g=>g.row===i);return gs.length>0&&near(Math.max(...gs.map(g=>g.right)),1190)&&near(Math.min(...gs.map(g=>g.top)),i?sourceRows[i-1].bottom+14:limit)&&Math.max(...gs.map(g=>g.bottom))<=1505.02;}));
- const logo=html.match(/<image\b([^>]*)\/>/);
+ const images=[...html.matchAll(/<image\b([^>]*)\/>/g)].map(m=>Object.fromEntries([...m[1].matchAll(/([\w-]+)="([^"]*)"/g)].map(v=>[v[1],v[2]])));
+ const marks=images.filter(a=>a['data-role']==='period-watermark'),logo=images.find(a=>!a['data-role']);
+ // 句号水印：独立重测「。」内孔，按记录尺寸重新缩放素材，核对水印全部落在内孔内且与圆环间隙 ≥1 px
+ const stops=body.map((g,i)=>({g,i})).filter(o=>o.g.char==='。'),scale=cfg.periodWatermarkScale??1.35,pw=recipe.periodWatermark,textColor=cfg.variant==='mint'?'#b54434':'#b4ddbe';
+ if(cfg.periodWatermark!==false){
+  const assetBytes=fs.readFileSync(path.join(root,'assets/period-er.png')),im=await loadImage(assetBytes),sc=createCanvas(im.width,im.height),sg=sc.getContext('2d');sg.drawImage(im,0,0);
+  const src=sg.getImageData(0,0,im.width,im.height).data,problems=[];
+  if(!pw||pw.enabled!==true||pw.clearance!==1||pw.scale!==scale||pw.color!==textColor||pw.marks?.length!==stops.length||marks.length!==stops.length)problems.push('数量或设置不符');
+  // 图层顺序：每个水印 <image> 必须紧排在对应「。」<text> 之前（贰在下、句号圆环在上），不得有遮罩/镂空
+  const bodyPos=[...html.matchAll(/<text\b[^>]*font-family="Body"[^>]*>/g)].map(m=>m.index),markPos=[...html.matchAll(/<image\b[^>]*data-role="period-watermark"[^>]*\/>/g)].map(m=>m.index);
+  if(pw?.layer!=='below-period'||/<mask\b|mask="url\(/.test(html)||stops.some(({i},k)=>!(markPos[k]<bodyPos[i]&&(i===0||markPos[k]>bodyPos[i-1]))))problems.push('图层顺序不符：须先画贰、再画句号，且无镂空遮罩');
+  if(stops.length&&!new RegExp(`<filter id="period-tint"[^>]*><feFlood flood-color="${textColor}"/>`).test(html))problems.push('HTML 着色与文字色不符');
+  stops.forEach(({g,i},k)=>{
+   const m=pw?.marks?.[k],a=marks[k];if(!m||!a){return;}
+   if(m.index!==i)problems.push(`第${k+1}个句号索引不符`);
+   if(String(m.x)!==a.x||String(m.y)!==a.y||String(m.width)!==a.width||String(m.height)!==a.height||!fs.existsSync(path.resolve(out,a.href))||sha(fs.readFileSync(path.resolve(out,a.href)))!==sha(assetBytes))problems.push(`第${k+1}个句号 HTML 水印与记录或素材不符`);
+   // 基准尺寸：独立重测内孔并重新拟合，基准水印须全部在内孔内、与圆环间隙 ≥1 px；成品尺寸 = 基准 × scale（默认 1.35，允许压到圆环，但不得溢出句号外轮廓）
+   const hole=PW.measureHole(createCanvas,'VerifyBody',g.fontSize,g.x,g.y),base=PW.fit(hole,src,im.width,im.height,1),gap=PW.gapAt(hole,base.alpha,base.w,base.h,base.x,base.y);
+   if(!(gap>=1)||m.base?.x!==base.x||m.base?.y!==base.y||m.base?.width!==base.w||m.base?.height!==base.h)problems.push(`第${k+1}个句号基准水印与重测不符或间隙 < 1 px`);
+   const f=PW.scaleMark(base,src,im.width,im.height,scale);
+   if(m.scale!==scale||m.x!==f.x||m.y!==f.y||m.width!==f.w||m.height!==f.h)problems.push(`第${k+1}个句号水印放大尺寸或位置不符`);
+   if(!PW.withinPeriod(hole,f.alpha,f.w,f.h,f.x,f.y))problems.push(`第${k+1}个句号水印溢出句号外轮廓`);
+  });
+  check('句号水印',problems.length===0,problems.length?problems.join('；'):`${stops.length} 个「。」：基准水印在实测内孔内、间隙 ≥1 px，按 ${scale} 倍放大（伸入圆环下方，不溢出句号；贰在下、圆环在上），句号本体未改，着文字色`);
+ }else check('句号水印',marks.length===0&&(!pw||pw.enabled===false),'配置关闭句号水印');
  if(cfg.brand!==false){
-  const a=Object.fromEntries([...(logo?.[1]??'').matchAll(/([\w-]+)="([^"]*)"/g)].map(v=>[v[1],v[2]])),expectedLogo=fs.readFileSync(path.join(root,'assets',cfg.variant==='mint'?'logo-red.png':'watermark-exact.png'));
+  const a=logo??{},expectedLogo=fs.readFileSync(path.join(root,'assets',cfg.variant==='mint'?'logo-red.png':'watermark-exact.png'));
   check('Logo',a.href&&a.x==='2'&&a.y==='1513'&&a.width==='278'&&a.height==='57'&&fs.existsSync(path.resolve(out,a.href))&&sha(fs.readFileSync(path.resolve(out,a.href)))===sha(expectedLogo),'原始Logo素材、位置和尺寸');
  }else check('Logo',!logo,'配置明确隐藏Logo');
- const refs=[...new Set(html.match(/_assets\/[a-f0-9]+\.(?:png|ttf|otf)/g)??[])];
- check('共享素材',refs.length>0&&!html.includes('data:font/')&&refs.every(r=>fs.existsSync(path.join(out,r))),'引用完整，字体不重复内嵌');
+ const refs=[...new Set([...(html.match(/(?<![\/\w.])_assets\/[a-f0-9]+\.(?:png|ttf|otf)/g)??[]),...[...html.matchAll(/src:url\(([^)]+)\)/g)].map(m=>m[1])])];
+ check('共享素材',refs.length>0&&!html.includes('data:font/')&&refs.every(r=>fs.existsSync(path.resolve(out,r))),'引用完整，字体不重复内嵌');
  const width=Math.max(...measured.map(g=>g.right))-Math.min(...measured.map(g=>g.left));
  if(width<1200*.6||bottom-top<limit*.45)warnings.push('正文占用面积偏小：需检查是否因碰撞缩字、断行失衡；不自动改字距或撑大行距。');
  const passed=checks.every(c=>c.passed),report={version:'1.5',automaticStatus:passed?'passed':'failed',deliveryStatus:passed&&reviewed?'reviewed':passed?'needs-visual-review':'blocked',checks,warnings,fontInfo:recipe.fontInfo,fillMetrics:{widthFraction:width/1200,heightFraction:(bottom-top)/limit,topSpace:top,bottomSpace:limit-bottom},visualReview:{status:reviewed?'marked-reviewed':'pending',items:['字体风格是否保持','行距、断行与整体疏密是否自然','背景主体是否位于顶部1:1框且不妨碍文字','孤字、标点、署名与Logo是否清晰完整','查证来源与用户确认稿是否一致'],note:'程序无法确认视觉判断正确，也不能证明用户授权；只有实际查看PNG后才可标记。'}};
@@ -77,4 +102,4 @@ function main(){
  console.log(JSON.stringify({report:reportPath,automaticStatus:report.automaticStatus,deliveryStatus:report.deliveryStatus,warnings}));
  if(!passed){console.error('验收失败：'+checks.filter(c=>!c.passed).map(c=>c.name).join('、'));process.exitCode=1;}
 }
-try{main();}catch(e){console.error(e.message);process.exitCode=1;}
+main().catch(e=>{console.error(e.message);process.exitCode=1;});

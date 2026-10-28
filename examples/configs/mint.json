@@ -1,0 +1,25 @@
+{
+  "variant": "mint",
+  "outputName": "01_富士山下_浅绿",
+  "originalText": "谁能凭爱意将富士山私有",
+  "text": "谁能凭爱意将富士山私有？",
+  "lines": [
+    "谁能凭爱意将",
+    "富士山",
+    "私有？"
+  ],
+  "sourceType": "lyrics",
+  "author": "陈奕迅",
+  "workTitle": "富士山下",
+  "credits": {
+    "lyricist": "林夕",
+    "composer": "Christopher Chak"
+  },
+  "backgroundText": [
+    "陈奕迅",
+    "富士山下"
+  ],
+  "emphasis": [
+    "富士山"
+  ]
+}

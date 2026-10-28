@@ -1,11 +1,17 @@
 {
   "name": "quote-poster",
-  "version": "1.6.0",
+  "version": "1.7.2",
   "private": true,
   "description": "Audience2 二流名言海报技能与渲染器",
   "dependencies": {
     "@napi-rs/canvas": "1.0.10",
     "opencc-js": "1.4.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "test": "node scripts/test.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }

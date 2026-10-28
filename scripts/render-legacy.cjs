@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 const fs=require('node:fs'),path=require('node:path');
-function dependency(name){try{return require(name);}catch{return require(require.resolve(name,{paths:[process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES].filter(Boolean)}));}}
+const dependency=require('./deps.cjs');
 const {createCanvas,loadImage,GlobalFonts}=dependency('@napi-rs/canvas');
 const root=path.resolve(__dirname,'..');
 const sharedAssets=require('./shared-assets.cjs');

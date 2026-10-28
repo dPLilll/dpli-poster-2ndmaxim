@@ -2,7 +2,7 @@
 
 品牌：**Audience2**。中文名：**二流名言**。
 
-当前版本：**1.6**。更新说明见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本：**1.7.2**。更新说明见 [CHANGELOG.md](CHANGELOG.md)。
 
 制作歌词和金句海报，支持红黑照片底绿字、浅绿织纹底红字两种版本。输出 PNG、可编辑 HTML 和排版参数 JSON。
 
@@ -23,14 +23,17 @@
 
 ## 安装
 
-需要 Node.js 与 npm。在目标项目根目录执行：
+需要 Node.js ≥ 18 与 npm。在目标项目根目录执行：
 
 ```sh
 mkdir -p .agents/skills
 git clone https://github.com/superyellancholy-png/quote-poster.git .agents/skills/quote-poster
 cd .agents/skills/quote-poster
 npm ci
+npm test   # 渲染并验收 examples/configs 下的示例
 ```
+
+依赖由 `scripts/deps.cjs` 从技能目录自己的 `node_modules` 加载，首次运行缺失时会自动在技能目录执行 `npm ci`。
 
 在 Codex 中调用 `$quote-poster`。先选择版本，再确认正文断行、正文下方以大号标题单列的放大词以及来源；确认后才生成图片。
 
@@ -56,14 +59,15 @@ node scripts/render-poster.cjs /path/to/config.json /path/to/任务名称/成品
 - 行距依据小字的视觉节奏，大字局部协调；不能因一行大字拉大所有行距。
 - 每张正文默认有符合句意的标点，视觉换行不自动添加；仅明确要求无标点或原文逐字保留时例外。不规定每行字数相同。
 - 可以调整换行，让相关放大词集中并位于各自行首，这是可选方案。
-- 歌词来源分两行：作者《作品名称》；作词：姓名　作曲：姓名。
+- 歌词来源分两行：作者《作品名称》；作词：姓名　作曲：姓名。作词与作曲为同一人且不同于歌手时，合并为“词曲：姓名”。
+- 句号水印（默认开启）：正文每个「。」的内孔放入「贰」（`assets/period-er.png`），着正文色，默认放大 1.35 倍；图层在句号下方，圆环压在字上。`periodWatermark: false` 可关闭。
 - 名言来源分两行：作者；查证的媒介与具体作品标题。
 
 以上为索引，完整规则以 SKILL.md 为准。
 
 ## 文件与素材
 
-`scripts/` 为渲染脚本，`assets/` 为字体、底纹与 Logo，`references/` 为排版说明和参考图，`agents/` 为技能展示配置。
+`scripts/` 为渲染脚本，`assets/` 为字体、底纹、Logo 与句号水印图片，`examples/configs/` 为示例配置，`references/` 为排版说明和参考图，`agents/` 为技能展示配置。
 
 生成的 HTML 共用成品目录下的 `_assets/` 字体与图片，避免重复内嵌。分享可编辑文件时打包整个成品目录，PNG 可单独分享。
 

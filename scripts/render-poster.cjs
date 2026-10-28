@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),zlib=require('node:zlib');
-function dep(n){try{return require(n)}catch{return require(require.resolve(n,{paths:[process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES].filter(Boolean)}))}}
+const dep=require('./deps.cjs');
 const {createCanvas,loadImage,GlobalFonts}=dep('@napi-rs/canvas'),root=path.resolve(__dirname,'..');
 const esc=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const sharedAssets=require('./shared-assets.cjs');
@@ -22,12 +22,16 @@ async function main(){
  if(typeof cfg.text!=='string'||!cfg.text.trim())throw Error('text is required');
  const punctuationState=checkPunctuation(cfg);
  const data=sharedAssets(out);
+ // Optional sharedFontDir: store the byte-identical (unmodified) font files once in a shared directory and
+ // reference them relatively from the HTML, instead of copying ~62 MB of fonts into every output folder.
+ const fontDir=cfg.sharedFontDir?path.resolve(base,cfg.sharedFontDir):null;
+ const fontData=(bytes,type)=>{if(!fontDir)return data(bytes,type);const rel=sharedAssets(fontDir)(bytes,type);return path.relative(out,path.join(fontDir,rel)).split(path.sep).join('/');};
  const mint=cfg.variant==='mint',W=1200,H=1600,spacing=-45,color=mint?'#b54434':'#b4ddbe';
  const canvas=createCanvas(W,H),c=canvas.getContext('2d'),bg=createCanvas(W,H),b=bg.getContext('2d');
  const fontName=cfg.font?path.resolve(base,cfg.font):path.join(root,'assets/fonts/YouyouYisong.ttf.gz');
  const readFont=p=>p.endsWith('.gz')?zlib.gunzipSync(fs.readFileSync(p)):fs.readFileSync(p);
  const fontBytes=readFont(fontName);if(!GlobalFonts.register(fontBytes,'Body'))throw Error('Cannot load body font');
- assertFontCoverage(fontBytes,[cfg.text,cfg.author,cfg.workTitle,cfg.sourceTitle,cfg.sourceMedium,cfg.sourcePrefix,...Object.values(cfg.credits??{}),cfg.credits?'作词：作曲：':'',cfg.workTitle||cfg.sourceTitle?'《》':''].filter(v=>typeof v==='string').join(''),'正文字体');
+ assertFontCoverage(fontBytes,[cfg.text,cfg.author,cfg.workTitle,cfg.sourceTitle,cfg.sourceMedium,cfg.sourcePrefix,...Object.values(cfg.credits??{}),cfg.credits?'作词：作曲：词曲：':'',cfg.workTitle||cfg.sourceTitle?'《》':''].filter(v=>typeof v==='string').join(''),'正文字体');
  let backBytes;
  const layerHTML=[];
  if(mint){
@@ -127,13 +131,34 @@ async function main(){
   return {rows,regularBaselineStep,baselineSteps,hasCollision,blockTop,bodyHeight:blockBottom-blockTop};
  }
  let size=600,layout;
- for(;size>=24;size--){layout=measure(size);if(layout.rows.every(r=>r.right-r.left<=W-pad*2)&&layout.bodyHeight<=bodyLimit-pad*2&&!layout.hasCollision)break;}
+ for(;size>=24;size--){layout=measure(size);if(layout.rows.every(r=>r.right-r.left<=W-pad*2)&&layout.bodyHeight<=bodyLimit-pad*2&&!layout.hasCollision&&layout.rows.every(r=>r.chars.every((ch,k)=>!k||ch.box.left>r.chars[k-1].box.left)))break;}
  if(size<24)throw Error('Cannot fit without collision: adjust word placement or semantic line breaks before confirming text; do not widen global line spacing');
  const {rows,bodyHeight,baselineSteps,regularBaselineStep,blockTop}=layout;
  const topPadding=(bodyLimit-bodyHeight)/2,baselineOrigin=topPadding-blockTop,rendered=[],bodyGlyphs=[];
+ // 句号水印（默认开启，periodWatermark:false 关闭）：「。」本身不变；「贰」(assets/period-er.png) 以实测内孔 1 px 间隙尺寸为基准，按 periodWatermarkScale（默认 1.35）放大，着正文色。
+ // 图层顺序：先画「贰」，再画「。」，圆环压在字上（PNG 与 HTML 一致）。
+ const pwEnabled=cfg.periodWatermark===undefined?true:cfg.periodWatermark;
+ if(typeof pwEnabled!=='boolean')throw Error('periodWatermark must be true or false');
+ const pwScale=cfg.periodWatermarkScale===undefined?1.35:cfg.periodWatermarkScale;
+ if(typeof pwScale!=='number'||!(pwScale>=0.5&&pwScale<=2))throw Error('periodWatermarkScale must be a number between 0.5 and 2');
+ const periodMarks=[],pwClearance=1;let pwBytes=null,periodMark=()=>{};
+ if(pwEnabled&&rows.some(r=>r.chars.some(ch=>ch.ch==='。'))){
+  const PW=require('./period-watermark.cjs');pwBytes=fs.readFileSync(path.join(root,'assets/period-er.png'));
+  const im=await loadImage(pwBytes),sc=createCanvas(im.width,im.height),sg=sc.getContext('2d');sg.drawImage(im,0,0);
+  const src=sg.getImageData(0,0,im.width,im.height).data,rgb=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)),href=data(pwBytes);
+  frontSVG.push(`<defs><filter id="period-tint" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB"><feFlood flood-color="${color}"/><feComposite in2="SourceAlpha" operator="in"/></filter></defs>`);
+  periodMark=(index,size,gx,gy)=>{
+   const hole=PW.measureHole(createCanvas,'Body',size,gx,gy),base=PW.fit(hole,src,im.width,im.height,pwClearance),f=PW.scaleMark(base,src,im.width,im.height,pwScale);
+   const t=createCanvas(f.w,f.h),tg=t.getContext('2d'),id=tg.createImageData(f.w,f.h);
+   for(let i=0;i<f.w*f.h;i++){id.data[i*4]=rgb[0];id.data[i*4+1]=rgb[1];id.data[i*4+2]=rgb[2];id.data[i*4+3]=f.alpha[i];}
+   tg.putImageData(id,0,0);c.save();c.globalCompositeOperation='source-over';c.globalAlpha=1;c.drawImage(t,f.x,f.y);c.restore();
+   frontSVG.push(`<image data-role="period-watermark" x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}" preserveAspectRatio="none" filter="url(#period-tint)" href="${href}"/>`);
+   periodMarks.push({index,x:f.x,y:f.y,width:f.w,height:f.h,scale:pwScale,base:{x:base.x,y:base.y,width:base.w,height:base.h,minGap:+base.gap.toFixed(3)},hole:{width:hole.bbox.right-hole.bbox.left,height:hole.bbox.bottom-hole.bbox.top,centerX:+hole.cx.toFixed(3),centerY:+hole.cy.toFixed(3)}});
+  };
+ }
  rows.forEach((r,i)=>{
   const x=pad-r.left,y=baselineOrigin+r.baseline;
-  r.chars.forEach(ch=>{const gy=y+(ch.yOffset??0);draw(ch.ch,'Body',ch.size,spacing,x+ch.x,gy,color,'source-over',frontSVG);bodyGlyphs.push({char:ch.ch,row:i,fontSize:ch.size,x:x+ch.x,y:gy,left:x+ch.box.left,right:x+ch.box.right,top:gy-ch.box.a,bottom:gy+ch.box.d});});
+  r.chars.forEach(ch=>{const gy=y+(ch.yOffset??0);if(ch.ch==='。')periodMark(bodyGlyphs.length,ch.size,x+ch.x,gy);draw(ch.ch,'Body',ch.size,spacing,x+ch.x,gy,color,'source-over',frontSVG);bodyGlyphs.push({char:ch.ch,row:i,fontSize:ch.size,x:x+ch.x,y:gy,left:x+ch.box.left,right:x+ch.box.right,top:gy-ch.box.a,bottom:gy+ch.box.d});});
   rendered.push({text:lines[i],baseline:y,left:pad,right:pad+r.right-r.left,top:y-r.a,bottom:y+r.d,anchorTop:y-r.anchorA,anchorBottom:y+r.anchorD,anchorMode:r.anchorMode,emphasisOffsets:r.chars.filter(ch=>ch.yOffset).map(ch=>({text:ch.ch,offsetY:ch.yOffset}))});
  });
  const outputName=cfg.outputName??'poster';
@@ -168,8 +193,11 @@ async function main(){
   const title=sourceLine(String(cfg.sourcePrefix??'')+sourceAuthor,77.77778,sourceTop,'title');
   if(credits){
    const parts=[];
-   if(credits.lyricist)parts.push(`作词：${credits.lyricist}`);
-   if(credits.composer)parts.push(`作曲：${credits.composer}`);
+   if(credits.lyricist&&credits.lyricist===credits.composer&&credits.lyricist!==author)parts.push(`词曲：${credits.lyricist}`);
+   else{
+    if(credits.lyricist)parts.push(`作词：${credits.lyricist}`);
+    if(credits.composer)parts.push(`作曲：${credits.composer}`);
+   }
    if(!parts.length)throw Error('credits requires lyricist and/or composer');
    const detail=sourceLine(parts.join('　'),55.55556,title.bottom+14,'credits');
    if(detail.bottom>1505)throw Error('Credits exceed source area above Logo');
@@ -179,7 +207,7 @@ async function main(){
   }
  }
  if(cfg.brand!==false){const bytes=fs.readFileSync(path.join(root,'assets',mint?'logo-red.png':'watermark-exact.png'));c.globalCompositeOperation='source-over';c.drawImage(await loadImage(bytes),2,1513,278,57);frontSVG.push(`<image x="2" y="1513" width="278" height="57" href="${data(bytes)}"/>`);}
- const html=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(author||cfg.text)}</title><style>@font-face{font-family:Body;src:url(${data(fontBytes,'font/ttf')})}${backBytes?`@font-face{font-family:Back;src:url(${data(backBytes,'font/ttf')})}`:''}body{margin:0;background:#333;display:grid;place-items:center}.poster{position:relative;width:min(100vw,75vh);aspect-ratio:3/4;isolation:isolate}.layer{position:absolute;inset:0;width:100%;height:100%}</style><article class="poster">${layerHTML.join('')}<svg class="layer" viewBox="0 0 1200 1600" style="mix-blend-mode:soft-light">${backSVG.join('')}</svg><svg class="layer" viewBox="0 0 1200 1600">${frontSVG.join('')}</svg></article></html>`;
- const pngBytes=canvas.toBuffer('image/png');fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,`${outputName}.png`),pngBytes);fs.writeFileSync(path.join(out,`${outputName}.html`),html);fs.writeFileSync(path.join(out,recipeName),JSON.stringify({...cfg,width:W,height:H,fontSize:size,letterSpacing:spacing,bodyBox:{x:0,y:0,width:W,height:bodyLimit},sourceTop,sourceRows,backgroundFit:"stretch-square",verticalAlign:"middle",bodyHeight,topPadding,lineSpacingMode:"optical-small-word-anchors",regularBaselineStep,baselineSteps,collisionChecked:true,rendered,bodyGlyphs,sourceGlyphs,emphasisRatio:1.55,fontInfo:{body:{file:path.basename(fontName),sha256:sha(fontBytes),custom:!!cfg.font},background:backBytes?{file:'KingHwaOldSong-v3.ttf.gz',sha256:sha(backBytes)}:null},outputInfo:{pngSha256:sha(pngBytes),htmlSha256:sha(Buffer.from(html))},rendererInfo:{entry:'scripts/render-poster.cjs',sha256:sha(fs.readFileSync(__filename)),inputSha256:sha(inputBytes)}},null,2));const verified=require('node:child_process').spawnSync(process.execPath,[path.join(__dirname,'verify-poster.cjs'),file,out],{encoding:'utf8'});if(verified.status!==0)throw Error(verified.stderr||verified.stdout||'Poster verification failed');console.log(JSON.stringify({variant:cfg.variant,fontSize:size,output:out,verification:verified.stdout.trim()}));
+ const html=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(author||cfg.text)}</title><style>@font-face{font-family:Body;src:url(${fontData(fontBytes,'font/ttf')})}${backBytes?`@font-face{font-family:Back;src:url(${fontData(backBytes,'font/ttf')})}`:''}body{margin:0;background:#333;display:grid;place-items:center}.poster{position:relative;width:min(100vw,75vh);aspect-ratio:3/4;isolation:isolate}.layer{position:absolute;inset:0;width:100%;height:100%}</style><article class="poster">${layerHTML.join('')}<svg class="layer" viewBox="0 0 1200 1600" style="mix-blend-mode:soft-light">${backSVG.join('')}</svg><svg class="layer" viewBox="0 0 1200 1600">${frontSVG.join('')}</svg></article></html>`;
+ const pngBytes=canvas.toBuffer('image/png');fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,`${outputName}.png`),pngBytes);fs.writeFileSync(path.join(out,`${outputName}.html`),html);fs.writeFileSync(path.join(out,recipeName),JSON.stringify({...cfg,width:W,height:H,fontSize:size,letterSpacing:spacing,bodyBox:{x:0,y:0,width:W,height:bodyLimit},sourceTop,sourceRows,backgroundFit:"stretch-square",verticalAlign:"middle",bodyHeight,topPadding,lineSpacingMode:"optical-small-word-anchors",regularBaselineStep,baselineSteps,collisionChecked:true,rendered,bodyGlyphs,sourceGlyphs,periodWatermark:{enabled:pwEnabled,asset:'assets/period-er.png',assetSha256:pwBytes?sha(pwBytes):null,clearance:pwClearance,scale:pwScale,layer:'below-period',color,marks:periodMarks},emphasisRatio:1.55,fontInfo:{body:{file:path.basename(fontName),sha256:sha(fontBytes),custom:!!cfg.font},background:backBytes?{file:'KingHwaOldSong-v3.ttf.gz',sha256:sha(backBytes)}:null},outputInfo:{pngSha256:sha(pngBytes),htmlSha256:sha(Buffer.from(html))},rendererInfo:{entry:'scripts/render-poster.cjs',sha256:sha(fs.readFileSync(__filename)),inputSha256:sha(inputBytes)}},null,2));const verified=require('node:child_process').spawnSync(process.execPath,[path.join(__dirname,'verify-poster.cjs'),file,out],{encoding:'utf8'});if(verified.status!==0)throw Error(verified.stderr||verified.stdout||'Poster verification failed');console.log(JSON.stringify({variant:cfg.variant,fontSize:size,output:out,verification:verified.stdout.trim()}));
 }
 main().catch(e=>{console.error(e.message);process.exitCode=1});
