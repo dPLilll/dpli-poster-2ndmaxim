@@ -18,6 +18,9 @@ async function main(){
  if(cfg.layout==='legacy')throw Error('此验收器只验证统一版布局，旧版不能冒充新版验收通过。');
  const recipe=JSON.parse(fs.readFileSync(path.join(out,cfg.outputName?`${name}_排版参数.json`:'recipe.json')));
  const html=fs.readFileSync(path.join(out,`${name}.html`),'utf8'),png=fs.readFileSync(path.join(out,`${name}.png`));
+ const overlay=cfg.variant==='darkroom'?(cfg.blackOverlayOpacity??0.3):0;
+ const overlays=[...html.matchAll(/<div class="layer" data-role="black-overlay" style="background:#000000;opacity:([^"]+)"><\/div>/g)];
+ check('黑色遮罩',typeof overlay==='number'&&Number.isFinite(overlay)&&overlay>=0&&overlay<=1&&recipe.blackOverlayOpacity===overlay&&(cfg.variant==='darkroom'?overlays.length===1&&Number(overlays[0][1])===overlay&&html.indexOf(overlays[0][0])<html.indexOf('<svg class="layer"'):overlays.length===0),'底图之上、文字之下；浅绿版不加遮罩');
  const texts=[...html.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)].map(m=>{
   const a=Object.fromEntries([...m[1].matchAll(/([\w-]+)="([^"]*)"/g)].map(v=>[v[1],v[2]]));
   return {char:decode(m[2]),family:a['font-family'],fontSize:Number(a['font-size']),x:Number(a.x),y:Number(a.y)};

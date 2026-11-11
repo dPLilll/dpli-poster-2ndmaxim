@@ -1,6 +1,6 @@
 {
   "name": "quote-poster",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "private": true,
   "description": "Audience2 二流名言海报技能与渲染器",
   "dependencies": {
@@ -9,7 +9,7 @@
   },
   "license": "MIT",
   "scripts": {
-    "test": "node scripts/test.cjs"
+    "test": "node scripts/test.cjs && node scripts/test-overlay.cjs"
   },
   "engines": {
     "node": ">=18"

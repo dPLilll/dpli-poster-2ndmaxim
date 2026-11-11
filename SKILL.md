@@ -4,7 +4,7 @@ description: >-
   二流名言，Audience2 品牌的歌词和金句海报，支持红黑照片底绿字、浅绿织纹底红字两种版本。每次新制作先让用户选择版本，输出 PNG、可编辑分层
   HTML 和参数 JSON。用于“二流名言”、歌词海报、金句图、“把这句话/这句歌词做张图”、暗房海报、红黑颗粒海报、浅绿歌词海报及使用这套模板出图的请求。
 metadata:
-  version: "1.7.2"
+  version: "1.7.3"
   brand: "Audience2"
 ---
 # 二流名言（quote-poster）
@@ -33,7 +33,7 @@ metadata:
 4. **选放大词**：选择或建议强调词之前，必须先读 `references/emphasis.md`。
 5. **核实来源**：补全或核实署名之前，必须先读 `references/source-verification.md`；用网络搜索核实，查证链接放在确认说明里。
 6. **文字确认**：把实际断行、标点、放大词（三级标题单列）、完整来源发给用户，等确认。
-7. **底图（仅红黑版）**：用户照片直接用；需要生成时必须先读 `references/red-background.md`，用图像生成工具（Grok Bot 中为 `GenerateImage`）生成无文字 3:4 底图，存入项目目录，`photo` 指向它并设 `backgroundTreatment: preserve`。浅绿版无需照片。
+7. **底图（仅红黑版）**：用户照片直接用；需要生成时必须先读 `references/red-background.md`，用图像生成工具（Grok Bot 中为 `GenerateImage`）生成无文字 3:4 底图，存入项目目录，`photo` 指向它并设 `backgroundTreatment: preserve`。红黑版默认由渲染器叠加 30% 黑色遮罩（`blackOverlayOpacity: 0.3`），只压暗底图，不影响文字、来源与 Logo；详见底图规则。浅绿版无需照片。
 8. **渲染**：`node <技能目录>/scripts/render-poster.cjs config.json output-directory`（两版同一命令；未设 `variant` 会拒绝渲染）。`photo`/`font` 相对配置文件解析，输出目录相对当前工作目录。依赖由 `scripts/deps.cjs` 从技能目录 `node_modules` 加载，缺失时自动在技能目录执行 `npm ci`。
 9. **输出与 HTML 素材**：确定项目目录、文件命名、是否使用共享字体目录 `sharedFontDir` 之前，必须先读 `references/output-and-html-assets.md`。
 10. **验收**：渲染器自动生成验收 JSON。通过后实际查看 PNG，按 `references/acceptance.md` 的清单检查，再运行 `node <技能目录>/scripts/verify-poster.cjs config.json output-directory --visual-reviewed`。失败或未看图不交付；排错按 `references/acceptance.md`，修改边界见 `references/modification-boundary.md`。

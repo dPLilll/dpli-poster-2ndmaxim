@@ -43,7 +43,8 @@
 | emphasis | 按语义建议或由用户指定，在确认稿正文下方用大号标题单列；确认后填写准确词组列表。相对字号 1.55，固定字距不变 |
 | photo | 红黑版必填，用户照片或按确认风格生成的无文字底图路径；浅绿版不用 |
 | focusX / focusY | 红黑版裁切焦点 0..1，默认 0.5 |
-| backgroundTreatment | 红黑版底图处理：preserve 保留生成底图原色，只叠加正文、来源与 Logo，忽略亮度、对比、蒙版和颗粒参数；redblack 为传统照片处理。省略兼容 redblack；生成底图必须显式设 preserve |
+| backgroundTreatment | 红黑版底图处理：preserve 保留生成底图原色，默认另加独立黑色遮罩，再叠加正文、来源与 Logo；忽略传统亮度、对比、红色蒙版和颗粒参数；redblack 为传统照片处理。省略兼容 redblack；生成底图必须显式设 preserve |
+| blackOverlayOpacity | 红黑版独立黑色遮罩不透明度，0..1，默认 0.3；0 关闭。两种底图处理都生效，仅压暗背景，浅绿版忽略 |
 | opacity | 红黑蒙版透明度，0..1，默认 0.85 |
 | brightness / contrast | 红黑版照片亮度、对比度，默认 1.05 / 1.2 |
 | grainOpacity | 红黑版颗粒强度，0..1，默认 0.23 |
